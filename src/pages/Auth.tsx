@@ -37,11 +37,17 @@ export default function Auth() {
       if (error) {
         setError(error.message);
       } else {
-        toast.success('Erfolgreich angemeldet!');
+        toast.success('Erfolgreich angemeldet!', {
+          description: isMockMode ? 'Demo-Modus aktiv' : undefined,
+        });
         navigate('/');
       }
     } catch (err) {
-      setError('Ein unerwarteter Fehler ist aufgetreten');
+      // Network errors are handled in AuthContext, this is a fallback
+      toast.info('Demo-Modus aktiviert', {
+        description: 'Server nicht erreichbar. Du kannst die App im Demo-Modus testen.',
+      });
+      navigate('/');
     } finally {
       setIsLoading(false);
     }
@@ -76,7 +82,11 @@ export default function Auth() {
         navigate('/');
       }
     } catch (err) {
-      setError('Ein unerwarteter Fehler ist aufgetreten');
+      // Network errors are handled in AuthContext, this is a fallback
+      toast.info('Demo-Modus aktiviert', {
+        description: 'Server nicht erreichbar. Du kannst die App im Demo-Modus testen.',
+      });
+      navigate('/');
     } finally {
       setIsLoading(false);
     }

@@ -16,111 +16,154 @@ interface AuthContextType {
 
 const AuthContext = createContext<AuthContextType | undefined>(undefined);
 
+// Create a mock user object
+const createMockUser = (email: string, displayName?: string): User => ({
+  id: mockProfile.id,
+  email: email,
+  app_metadata: {},
+  user_metadata: { display_name: displayName || email.split('@')[0] },
+  aud: 'authenticated',
+  created_at: new Date().toISOString(),
+} as User);
+
 export function AuthProvider({ children }: { children: ReactNode }) {
   const [user, setUser] = useState<User | null>(null);
   const [session, setSession] = useState<Session | null>(null);
   const [isLoading, setIsLoading] = useState(true);
+  const [forceMockMode, setForceMockMode] = useState(false);
 
-  const isMockMode = !isSupabaseConfigured();
+  // Determine if we're in mock mode (no Supabase or forced)
+  const isMockMode = !isSupabaseConfigured() || forceMockMode;
 
   useEffect(() => {
-    if (isMockMode) {
-      // In mock mode, simulate a logged-in user
-      setUser({
-        id: mockProfile.id,
-        email: mockProfile.email,
-        app_metadata: {},
-        user_metadata: { display_name: mockProfile.displayName },
-        aud: 'authenticated',
-        created_at: mockProfile.createdAt.toISOString(),
-      } as User);
-      setIsLoading(false);
-      return;
-    }
+    const initAuth = async () => {
+      // If Supabase is not configured at all, use mock mode immediately
+      if (!isSupabaseConfigured() || !supabase) {
+        console.log('Supabase not configured, using demo mode');
+        setUser(createMockUser(mockProfile.email, mockProfile.displayName));
+        setIsLoading(false);
+        return;
+      }
 
-    if (!supabase) {
-      setIsLoading(false);
-      return;
-    }
+      // Try to get session from Supabase
+      try {
+        const { data: { session }, error } = await supabase.auth.getSession();
 
-    // Get initial session
-    supabase.auth.getSession().then(({ data: { session } }) => {
-      setSession(session);
-      setUser(session?.user ?? null);
-      setIsLoading(false);
-    });
+        if (error) {
+          console.warn('Supabase auth error, falling back to demo mode:', error.message);
+          setForceMockMode(true);
+          setUser(createMockUser(mockProfile.email, mockProfile.displayName));
+          setIsLoading(false);
+          return;
+        }
 
-    // Listen for auth changes
-    const { data: { subscription } } = supabase.auth.onAuthStateChange(
-      (_event, session) => {
         setSession(session);
         setUser(session?.user ?? null);
+      } catch (err) {
+        // Network error or Supabase not reachable
+        console.warn('Could not connect to Supabase, using demo mode:', err);
+        setForceMockMode(true);
+        setUser(createMockUser(mockProfile.email, mockProfile.displayName));
+      } finally {
+        setIsLoading(false);
       }
-    );
+    };
 
-    return () => subscription.unsubscribe();
-  }, [isMockMode]);
+    initAuth();
+
+    // Only set up auth state listener if Supabase is available and we're not in forced mock mode
+    if (isSupabaseConfigured() && supabase && !forceMockMode) {
+      const { data: { subscription } } = supabase.auth.onAuthStateChange(
+        (_event, session) => {
+          setSession(session);
+          setUser(session?.user ?? null);
+        }
+      );
+
+      return () => subscription.unsubscribe();
+    }
+  }, [forceMockMode]);
 
   const signIn = async (email: string, password: string) => {
-    if (isMockMode) {
-      // Simulate successful login in mock mode
-      setUser({
-        id: mockProfile.id,
-        email: email,
-        app_metadata: {},
-        user_metadata: { display_name: email.split('@')[0] },
-        aud: 'authenticated',
-        created_at: new Date().toISOString(),
-      } as User);
+    // Use mock mode if Supabase is not available
+    if (isMockMode || !supabase) {
+      console.log('Demo mode: Simulating login for', email);
+      setUser(createMockUser(email));
       return { error: null };
     }
 
-    if (!supabase) {
-      return { error: new Error('Supabase not configured') };
+    try {
+      const { error } = await supabase.auth.signInWithPassword({ email, password });
+      if (error) {
+        // If it's a network error, fall back to demo mode
+        if (error.message.includes('fetch') || error.message.includes('network')) {
+          console.warn('Network error during sign in, enabling demo mode');
+          setForceMockMode(true);
+          setUser(createMockUser(email));
+          return { error: null };
+        }
+        return { error: new Error(error.message) };
+      }
+      return { error: null };
+    } catch (err) {
+      // Network error - fall back to demo mode
+      console.warn('Sign in failed, enabling demo mode:', err);
+      setForceMockMode(true);
+      setUser(createMockUser(email));
+      return { error: null };
     }
-
-    const { error } = await supabase.auth.signInWithPassword({ email, password });
-    return { error: error ? new Error(error.message) : null };
   };
 
   const signUp = async (email: string, password: string, displayName?: string) => {
-    if (isMockMode) {
-      // Simulate successful registration in mock mode
-      setUser({
-        id: 'new-user-' + Date.now(),
-        email: email,
-        app_metadata: {},
-        user_metadata: { display_name: displayName || email.split('@')[0] },
-        aud: 'authenticated',
-        created_at: new Date().toISOString(),
-      } as User);
+    // Use mock mode if Supabase is not available
+    if (isMockMode || !supabase) {
+      console.log('Demo mode: Simulating registration for', email);
+      setUser(createMockUser(email, displayName));
       return { error: null };
     }
 
-    if (!supabase) {
-      return { error: new Error('Supabase not configured') };
+    try {
+      const { error } = await supabase.auth.signUp({
+        email,
+        password,
+        options: {
+          data: { display_name: displayName },
+        },
+      });
+      if (error) {
+        // If it's a network error, fall back to demo mode
+        if (error.message.includes('fetch') || error.message.includes('network')) {
+          console.warn('Network error during sign up, enabling demo mode');
+          setForceMockMode(true);
+          setUser(createMockUser(email, displayName));
+          return { error: null };
+        }
+        return { error: new Error(error.message) };
+      }
+      return { error: null };
+    } catch (err) {
+      // Network error - fall back to demo mode
+      console.warn('Sign up failed, enabling demo mode:', err);
+      setForceMockMode(true);
+      setUser(createMockUser(email, displayName));
+      return { error: null };
     }
-
-    const { error } = await supabase.auth.signUp({
-      email,
-      password,
-      options: {
-        data: { display_name: displayName },
-      },
-    });
-    return { error: error ? new Error(error.message) : null };
   };
 
   const signOut = async () => {
-    if (isMockMode) {
+    if (isMockMode || !supabase) {
       setUser(null);
       setSession(null);
       return;
     }
 
-    if (supabase) {
+    try {
       await supabase.auth.signOut();
+    } catch (err) {
+      console.warn('Sign out error:', err);
     }
+    setUser(null);
+    setSession(null);
   };
 
   const value = {
