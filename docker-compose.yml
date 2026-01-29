@@ -18,7 +18,7 @@ services:
   # ===========================================================================
   newt:
     image: fosrl/newt
-    container_name: newt
+    container_name: car-planner-newt
     restart: unless-stopped
     environment:
       - PANGOLIN_ENDPOINT=${PANGOLIN_ENDPOINT}
