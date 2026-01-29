@@ -73,6 +73,8 @@ services:
       - "${POSTGRES_PORT:-5432}:5432"
     environment:
       POSTGRES_HOST: /var/run/postgresql
+      POSTGRES_USER: postgres
+      PGUSER: postgres
       PGPORT: ${POSTGRES_PORT:-5432}
       POSTGRES_PORT: ${POSTGRES_PORT:-5432}
       PGPASSWORD: ${POSTGRES_PASSWORD}
