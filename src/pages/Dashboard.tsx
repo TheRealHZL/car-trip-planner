@@ -1,19 +1,57 @@
 import { MainLayout } from '@/components/layout/MainLayout';
 import { StatCard } from '@/components/ui/stat-card';
-import { getDashboardStats, getVehiclesWithDealers } from '@/data/mockData';
-import { Car, MapPin, CheckCircle, XCircle, Star, TrendingUp } from 'lucide-react';
+import { useVehiclesWithDealers, useDealers } from '@/hooks/useSupabase';
+import { Car, MapPin, CheckCircle, XCircle, Star, TrendingUp, Loader2 } from 'lucide-react';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { PriorityBadge, StatusBadge } from '@/components/ui/status-badges';
 import { Button } from '@/components/ui/button';
 import { Link } from 'react-router-dom';
+import { useMemo } from 'react';
 
 export default function Dashboard() {
-  const stats = getDashboardStats();
-  const vehicles = getVehiclesWithDealers();
-  const topVehicles = vehicles
-    .filter(v => v.status === 'open')
-    .sort((a, b) => b.priority - a.priority)
-    .slice(0, 5);
+  const { data: vehicles, isLoading: vehiclesLoading, error: vehiclesError } = useVehiclesWithDealers();
+  const { data: dealers, isLoading: dealersLoading } = useDealers();
+
+  const stats = useMemo(() => {
+    if (!vehicles || !dealers) {
+      return {
+        totalVehicles: 0,
+        totalDealers: 0,
+        openVehicles: 0,
+        visitedVehicles: 0,
+        excludedVehicles: 0,
+        highPriorityCount: 0,
+        avgPrice: 0,
+      };
+    }
+
+    const openVehicles = vehicles.filter(v => v.status === 'open').length;
+    const visitedVehicles = vehicles.filter(v => v.status === 'visited').length;
+    const excludedVehicles = vehicles.filter(v => v.status === 'excluded').length;
+    const highPriorityCount = vehicles.filter(v => v.priority >= 4).length;
+    const pricesWithValues = vehicles.filter(v => v.price && v.price > 0).map(v => v.price!);
+    const avgPrice = pricesWithValues.length > 0
+      ? pricesWithValues.reduce((a, b) => a + b, 0) / pricesWithValues.length
+      : 0;
+
+    return {
+      totalVehicles: vehicles.length,
+      totalDealers: dealers.length,
+      openVehicles,
+      visitedVehicles,
+      excludedVehicles,
+      highPriorityCount,
+      avgPrice,
+    };
+  }, [vehicles, dealers]);
+
+  const topVehicles = useMemo(() => {
+    if (!vehicles) return [];
+    return vehicles
+      .filter(v => v.status === 'open')
+      .sort((a, b) => b.priority - a.priority)
+      .slice(0, 5);
+  }, [vehicles]);
 
   const formatPrice = (price: number) => {
     return new Intl.NumberFormat('de-DE', {
@@ -22,6 +60,29 @@ export default function Dashboard() {
       minimumFractionDigits: 0,
     }).format(price);
   };
+
+  const isLoading = vehiclesLoading || dealersLoading;
+
+  if (isLoading) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (vehiclesError) {
+    return (
+      <MainLayout>
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <XCircle className="h-12 w-12 text-destructive" />
+          <p className="text-muted-foreground">Fehler beim Laden der Daten</p>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -142,7 +203,7 @@ export default function Dashboard() {
                   </div>
                 </div>
               ))}
-              
+
               {topVehicles.length === 0 && (
                 <div className="text-center py-8 text-muted-foreground">
                   Keine offenen Fahrzeuge vorhanden

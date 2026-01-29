@@ -1,9 +1,8 @@
 import { useState, useMemo } from 'react';
 import { MainLayout } from '@/components/layout/MainLayout';
 import { RouteMap } from '@/components/map/RouteMap';
-import { getVehiclesWithDealers } from '@/data/mockData';
+import { useVehiclesWithDealers } from '@/hooks/useSupabase';
 import { rankVehicles, optimizeRouteOrder, defaultWeights, ScoringWeights, generateGoogleMapsUrl } from '@/lib/routing';
-import { RankedVehicle } from '@/types';
 import { Card, CardContent, CardDescription, CardHeader, CardTitle } from '@/components/ui/card';
 import { Button } from '@/components/ui/button';
 import { Input } from '@/components/ui/input';
@@ -11,7 +10,7 @@ import { Label } from '@/components/ui/label';
 import { Slider } from '@/components/ui/slider';
 import { Switch } from '@/components/ui/switch';
 import { PriorityBadge } from '@/components/ui/status-badges';
-import { MapPin, Route, ExternalLink, Settings2, Car, ArrowRight, Navigation } from 'lucide-react';
+import { MapPin, Route, Settings2, Car, Navigation, Loader2, X } from 'lucide-react';
 import { Collapsible, CollapsibleContent, CollapsibleTrigger } from '@/components/ui/collapsible';
 import { toast } from 'sonner';
 
@@ -23,8 +22,8 @@ const DEFAULT_START = {
 };
 
 export default function RoutePlanner() {
-  const vehicles = getVehiclesWithDealers();
-  
+  const { data: vehicles, isLoading, error } = useVehiclesWithDealers();
+
   const [startAddress, setStartAddress] = useState(DEFAULT_START.address);
   const [startLat] = useState(DEFAULT_START.lat);
   const [startLng] = useState(DEFAULT_START.lng);
@@ -34,7 +33,17 @@ export default function RoutePlanner() {
 
   // Calculate ranked vehicles
   const rankedVehicles = useMemo(() => {
-    let ranked = rankVehicles(vehicles, startLat, startLng, weights);
+    if (!vehicles) return [];
+
+    // Filter only open vehicles with dealers that have coordinates
+    const openVehicles = vehicles.filter(v =>
+      v.status === 'open' &&
+      v.dealer &&
+      v.dealer.latitude &&
+      v.dealer.longitude
+    );
+
+    let ranked = rankVehicles(openVehicles, startLat, startLng, weights);
     if (optimizeRoute) {
       ranked = optimizeRouteOrder(ranked, startLat, startLng);
     }
@@ -63,6 +72,27 @@ export default function RoutePlanner() {
       .filter(v => v.distanceKm !== null)
       .reduce((sum, v) => sum + (v.distanceKm || 0), 0);
   }, [rankedVehicles]);
+
+  if (isLoading) {
+    return (
+      <MainLayout>
+        <div className="flex items-center justify-center h-64">
+          <Loader2 className="h-8 w-8 animate-spin text-primary" />
+        </div>
+      </MainLayout>
+    );
+  }
+
+  if (error) {
+    return (
+      <MainLayout>
+        <div className="flex flex-col items-center justify-center h-64 gap-4">
+          <X className="h-12 w-12 text-destructive" />
+          <p className="text-muted-foreground">Fehler beim Laden der Fahrzeuge</p>
+        </div>
+      </MainLayout>
+    );
+  }
 
   return (
     <MainLayout>
@@ -103,7 +133,7 @@ export default function RoutePlanner() {
                     placeholder="Adresse eingeben..."
                   />
                   <p className="text-xs text-muted-foreground">
-                    📍 {startLat.toFixed(4)}, {startLng.toFixed(4)}
+                    Koordinaten: {startLat.toFixed(4)}, {startLng.toFixed(4)}
                   </p>
                 </div>
               </CardContent>
@@ -255,7 +285,7 @@ export default function RoutePlanner() {
                   Kartenansicht
                 </CardTitle>
                 <CardDescription>
-                  OpenStreetMap • Klicke auf Marker für Details
+                  OpenStreetMap - Klicke auf Marker für Details
                 </CardDescription>
               </CardHeader>
               <CardContent className="p-0">
