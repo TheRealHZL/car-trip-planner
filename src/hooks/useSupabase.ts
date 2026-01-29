@@ -43,10 +43,12 @@ const mapDbProfileToProfile = (row: any): Profile => ({
 
 // Dealers hooks
 export const useDealers = () => {
+  const isMockMode = !isSupabaseConfigured();
+
   return useQuery<Dealer[]>({
     queryKey: ['dealers'],
     queryFn: async () => {
-      if (!isSupabaseConfigured() || !supabase) {
+      if (isMockMode || !supabase) {
         return mockDealers;
       }
       const { data, error } = await supabase
@@ -56,6 +58,9 @@ export const useDealers = () => {
       if (error) throw error;
       return data.map(mapDbDealerToDealer);
     },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    // Return mock data immediately without loading state
+    initialData: isMockMode ? mockDealers : undefined,
   });
 };
 
@@ -136,10 +141,12 @@ export const useDeleteDealer = () => {
 
 // Vehicles hooks
 export const useVehicles = () => {
+  const isMockMode = !isSupabaseConfigured();
+
   return useQuery<Vehicle[]>({
     queryKey: ['vehicles'],
     queryFn: async () => {
-      if (!isSupabaseConfigured() || !supabase) {
+      if (isMockMode || !supabase) {
         return mockVehicles;
       }
       const { data, error } = await supabase
@@ -149,21 +156,30 @@ export const useVehicles = () => {
       if (error) throw error;
       return data.map(mapDbVehicleToVehicle);
     },
+    staleTime: 1000 * 60 * 5, // 5 minutes
+    // Return mock data immediately without loading state
+    initialData: isMockMode ? mockVehicles : undefined,
   });
 };
 
 export const useVehiclesWithDealers = () => {
-  const { data: vehicles, ...vehiclesQuery } = useVehicles();
-  const { data: dealers } = useDealers();
+  const { data: vehicles, isLoading: vehiclesLoading, error: vehiclesError } = useVehicles();
+  const { data: dealers, isLoading: dealersLoading } = useDealers();
 
-  const vehiclesWithDealers: VehicleWithDealer[] | undefined = vehicles?.map(vehicle => ({
-    ...vehicle,
-    dealer: dealers?.find(d => d.id === vehicle.dealerId) || null,
-  }));
+  const isLoading = vehiclesLoading || dealersLoading;
+
+  const vehiclesWithDealers: VehicleWithDealer[] | undefined =
+    vehicles && dealers
+      ? vehicles.map(vehicle => ({
+          ...vehicle,
+          dealer: dealers.find(d => d.id === vehicle.dealerId) || null,
+        }))
+      : undefined;
 
   return {
     data: vehiclesWithDealers,
-    ...vehiclesQuery,
+    isLoading,
+    error: vehiclesError,
   };
 };
 
