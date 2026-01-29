@@ -120,7 +120,7 @@ services:
   # GoTrue Auth Service
   # ---------------------------------------------------------------------------
   supabase-auth:
-    image: supabase/gotrue:v2.164.0
+    image: supabase/gotrue:v2.132.3
     container_name: supabase-auth
     restart: unless-stopped
     environment:
