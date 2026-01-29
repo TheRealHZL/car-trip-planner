@@ -14,6 +14,21 @@
 
 services:
   # ===========================================================================
+  # NEWT TUNNEL (Pangolin)
+  # ===========================================================================
+  newt:
+    image: fosrl/newt
+    container_name: newt
+    restart: unless-stopped
+    environment:
+      - PANGOLIN_ENDPOINT=${PANGOLIN_ENDPOINT}
+      - NEWT_ID=${NEWT_ID}
+      - NEWT_SECRET=${NEWT_SECRET}
+    networks:
+      - car-planner-network
+    depends_on:
+      - frontend
+  # ===========================================================================
   # FRONTEND APPLICATION
   # ===========================================================================
   frontend:
