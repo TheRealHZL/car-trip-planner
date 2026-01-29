@@ -222,7 +222,7 @@ services:
   # Studio (Admin Dashboard) - Optional
   # ---------------------------------------------------------------------------
   supabase-studio:
-    image: supabase/studio:20240923-59f7716
+    image: supabase/studio:20250113-041d468
     container_name: supabase-studio
     restart: unless-stopped
     ports:
