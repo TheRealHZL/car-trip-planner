@@ -1,0 +1,216 @@
+# =============================================================================
+# KONG API Gateway Configuration for Supabase
+# =============================================================================
+_format_version: "2.1"
+_transform: true
+
+# =============================================================================
+# Consumers (API Keys)
+# =============================================================================
+consumers:
+  - username: ANON
+    keyauth_credentials:
+      - key: ${SUPABASE_ANON_KEY}
+  - username: SERVICE_ROLE
+    keyauth_credentials:
+      - key: ${SUPABASE_SERVICE_KEY}
+
+# =============================================================================
+# Access Control Lists
+# =============================================================================
+acls:
+  - consumer: ANON
+    group: anon
+  - consumer: SERVICE_ROLE
+    group: admin
+
+# =============================================================================
+# Services & Routes
+# =============================================================================
+services:
+  # ---------------------------------------------------------------------------
+  # Auth Service (GoTrue)
+  # ---------------------------------------------------------------------------
+  - name: auth-v1-open
+    url: http://supabase-auth:9999/verify
+    routes:
+      - name: auth-v1-open
+        strip_path: true
+        paths:
+          - /auth/v1/verify
+    plugins:
+      - name: cors
+
+  - name: auth-v1-open-callback
+    url: http://supabase-auth:9999/callback
+    routes:
+      - name: auth-v1-open-callback
+        strip_path: true
+        paths:
+          - /auth/v1/callback
+    plugins:
+      - name: cors
+
+  - name: auth-v1-open-authorize
+    url: http://supabase-auth:9999/authorize
+    routes:
+      - name: auth-v1-open-authorize
+        strip_path: true
+        paths:
+          - /auth/v1/authorize
+    plugins:
+      - name: cors
+
+  - name: auth-v1
+    url: http://supabase-auth:9999
+    routes:
+      - name: auth-v1
+        strip_path: true
+        paths:
+          - /auth/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  # ---------------------------------------------------------------------------
+  # REST Service (PostgREST)
+  # ---------------------------------------------------------------------------
+  - name: rest-v1
+    url: http://supabase-rest:3000/
+    routes:
+      - name: rest-v1
+        strip_path: true
+        paths:
+          - /rest/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: true
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  # ---------------------------------------------------------------------------
+  # GraphQL Service
+  # ---------------------------------------------------------------------------
+  - name: graphql-v1
+    url: http://supabase-rest:3000/rpc/graphql
+    routes:
+      - name: graphql-v1
+        strip_path: true
+        paths:
+          - /graphql/v1
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: true
+      - name: request-transformer
+        config:
+          add:
+            headers:
+              - Content-Profile:graphql_public
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  # ---------------------------------------------------------------------------
+  # Realtime Service
+  # ---------------------------------------------------------------------------
+  - name: realtime-v1-ws
+    url: http://supabase-realtime:4000/socket
+    routes:
+      - name: realtime-v1-ws
+        strip_path: true
+        paths:
+          - /realtime/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  # ---------------------------------------------------------------------------
+  # Storage Service
+  # ---------------------------------------------------------------------------
+  - name: storage-v1
+    url: http://supabase-storage:5000/
+    routes:
+      - name: storage-v1
+        strip_path: true
+        paths:
+          - /storage/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  # ---------------------------------------------------------------------------
+  # Edge Functions Service
+  # ---------------------------------------------------------------------------
+  - name: functions-v1
+    url: http://supabase-edge-functions:9000/
+    routes:
+      - name: functions-v1
+        strip_path: true
+        paths:
+          - /functions/v1/
+    plugins:
+      - name: cors
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin
+            - anon
+
+  # ---------------------------------------------------------------------------
+  # Meta Service (for Studio)
+  # ---------------------------------------------------------------------------
+  - name: meta
+    url: http://supabase-meta:8080/
+    routes:
+      - name: meta
+        strip_path: true
+        paths:
+          - /pg/
+    plugins:
+      - name: key-auth
+        config:
+          hide_credentials: false
+      - name: acl
+        config:
+          hide_groups_header: true
+          allow:
+            - admin

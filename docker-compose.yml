@@ -1,0 +1,352 @@
+# =============================================================================
+# CAR VISIT PLANNER - ROOT DOCKER COMPOSE
+# Orchestrates Frontend + Supabase Self-Hosted Stack
+# =============================================================================
+#
+# USAGE:
+#   Development:  docker compose up -d
+#   Production:   docker compose -f docker-compose.yml -f docker-compose.prod.yml up -d
+#   Logs:         docker compose logs -f [service]
+#   Stop:         docker compose down
+#   Clean:        docker compose down -v (removes volumes)
+#
+# =============================================================================
+
+services:
+  # ===========================================================================
+  # FRONTEND APPLICATION
+  # ===========================================================================
+  frontend:
+    build:
+      context: .
+      dockerfile: Dockerfile
+      args:
+        - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-http://localhost:8000}
+        - VITE_SUPABASE_ANON_KEY=${ANON_KEY}
+    container_name: car-planner-frontend
+    restart: unless-stopped
+    ports:
+      - "${FRONTEND_PORT:-3000}:80"
+    environment:
+      - VITE_SUPABASE_URL=${VITE_SUPABASE_URL:-http://localhost:8000}
+      - VITE_SUPABASE_ANON_KEY=${ANON_KEY}
+    depends_on:
+      supabase-kong:
+        condition: service_started
+    networks:
+      - car-planner-network
+      - supabase-network
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:80/health"]
+      interval: 30s
+      timeout: 10s
+      retries: 3
+      start_period: 10s
+
+  # ===========================================================================
+  # SUPABASE SERVICES
+  # ===========================================================================
+
+  # ---------------------------------------------------------------------------
+  # PostgreSQL Database
+  # ---------------------------------------------------------------------------
+  supabase-db:
+    image: supabase/postgres:15.6.1.143
+    container_name: supabase-db
+    restart: unless-stopped
+    ports:
+      - "${POSTGRES_PORT:-5432}:5432"
+    environment:
+      POSTGRES_HOST: /var/run/postgresql
+      PGPORT: ${POSTGRES_PORT:-5432}
+      POSTGRES_PORT: ${POSTGRES_PORT:-5432}
+      PGPASSWORD: ${POSTGRES_PASSWORD}
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      PGDATABASE: ${POSTGRES_DB:-postgres}
+      POSTGRES_DB: ${POSTGRES_DB:-postgres}
+      JWT_SECRET: ${JWT_SECRET}
+      JWT_EXP: ${JWT_EXPIRY:-3600}
+    volumes:
+      - supabase-db-data:/var/lib/postgresql/data
+      - ./supabase/volumes/db/init:/docker-entrypoint-initdb.d:ro
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -h localhost"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - supabase-network
+
+  # ---------------------------------------------------------------------------
+  # Kong API Gateway
+  # ---------------------------------------------------------------------------
+  supabase-kong:
+    image: kong:2.8.1
+    container_name: supabase-kong
+    restart: unless-stopped
+    ports:
+      - "${KONG_HTTP_PORT:-8000}:8000/tcp"
+      - "${KONG_HTTPS_PORT:-8443}:8443/tcp"
+    environment:
+      KONG_DATABASE: "off"
+      KONG_DECLARATIVE_CONFIG: /var/lib/kong/kong.yml
+      KONG_DNS_ORDER: LAST,A,CNAME
+      KONG_PLUGINS: request-transformer,cors,key-auth,acl,basic-auth
+      KONG_NGINX_PROXY_PROXY_BUFFER_SIZE: 160k
+      KONG_NGINX_PROXY_PROXY_BUFFERS: 64 160k
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+    volumes:
+      - ./supabase/volumes/kong/kong.yml:/var/lib/kong/kong.yml:ro
+    depends_on:
+      supabase-auth:
+        condition: service_healthy
+      supabase-rest:
+        condition: service_started
+      supabase-storage:
+        condition: service_started
+    networks:
+      - supabase-network
+      - car-planner-network
+
+  # ---------------------------------------------------------------------------
+  # GoTrue Auth Service
+  # ---------------------------------------------------------------------------
+  supabase-auth:
+    image: supabase/gotrue:v2.164.0
+    container_name: supabase-auth
+    restart: unless-stopped
+    environment:
+      GOTRUE_API_HOST: 0.0.0.0
+      GOTRUE_API_PORT: 9999
+      API_EXTERNAL_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      GOTRUE_DB_DRIVER: postgres
+      GOTRUE_DB_DATABASE_URL: postgres://supabase_auth_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-postgres}
+      GOTRUE_SITE_URL: ${SITE_URL:-http://localhost:3000}
+      GOTRUE_URI_ALLOW_LIST: ${ADDITIONAL_REDIRECT_URLS:-}
+      GOTRUE_DISABLE_SIGNUP: ${DISABLE_SIGNUP:-false}
+      GOTRUE_JWT_ADMIN_ROLES: service_role
+      GOTRUE_JWT_AUD: authenticated
+      GOTRUE_JWT_DEFAULT_GROUP_NAME: authenticated
+      GOTRUE_JWT_EXP: ${JWT_EXPIRY:-3600}
+      GOTRUE_JWT_SECRET: ${JWT_SECRET}
+      GOTRUE_EXTERNAL_EMAIL_ENABLED: ${ENABLE_EMAIL_SIGNUP:-true}
+      GOTRUE_EXTERNAL_ANONYMOUS_USERS_ENABLED: ${ENABLE_ANONYMOUS_USERS:-false}
+      GOTRUE_MAILER_AUTOCONFIRM: ${ENABLE_EMAIL_AUTOCONFIRM:-true}
+      GOTRUE_SMTP_HOST: ${SMTP_HOST:-}
+      GOTRUE_SMTP_PORT: ${SMTP_PORT:-587}
+      GOTRUE_SMTP_USER: ${SMTP_USER:-}
+      GOTRUE_SMTP_PASS: ${SMTP_PASS:-}
+      GOTRUE_SMTP_ADMIN_EMAIL: ${SMTP_ADMIN_EMAIL:-}
+      GOTRUE_SMTP_MAX_FREQUENCY: 1ns
+      GOTRUE_EXTERNAL_PHONE_ENABLED: ${ENABLE_PHONE_SIGNUP:-false}
+      GOTRUE_SMS_AUTOCONFIRM: ${ENABLE_PHONE_AUTOCONFIRM:-false}
+    healthcheck:
+      test: ["CMD", "wget", "--no-verbose", "--tries=1", "--spider", "http://localhost:9999/health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-network
+
+  # ---------------------------------------------------------------------------
+  # PostgREST API
+  # ---------------------------------------------------------------------------
+  supabase-rest:
+    image: postgrest/postgrest:v12.2.3
+    container_name: supabase-rest
+    restart: unless-stopped
+    environment:
+      PGRST_DB_URI: postgres://authenticator:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-postgres}
+      PGRST_DB_SCHEMAS: ${PGRST_DB_SCHEMAS:-public,storage,graphql_public}
+      PGRST_DB_ANON_ROLE: anon
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      PGRST_DB_USE_LEGACY_GUCS: "false"
+      PGRST_APP_SETTINGS_JWT_SECRET: ${JWT_SECRET}
+      PGRST_APP_SETTINGS_JWT_EXP: ${JWT_EXPIRY:-3600}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-network
+
+  # ---------------------------------------------------------------------------
+  # Storage API
+  # ---------------------------------------------------------------------------
+  supabase-storage:
+    image: supabase/storage-api:v1.11.13
+    container_name: supabase-storage
+    restart: unless-stopped
+    environment:
+      ANON_KEY: ${ANON_KEY}
+      SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      POSTGREST_URL: http://supabase-rest:3000
+      PGRST_JWT_SECRET: ${JWT_SECRET}
+      DATABASE_URL: postgres://supabase_storage_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-postgres}
+      FILE_SIZE_LIMIT: 52428800
+      STORAGE_BACKEND: file
+      FILE_STORAGE_BACKEND_PATH: /var/lib/storage
+      TENANT_ID: stub
+      REGION: stub
+      GLOBAL_S3_BUCKET: stub
+      ENABLE_IMAGE_TRANSFORMATION: "true"
+      IMGPROXY_URL: http://supabase-imgproxy:5001
+    volumes:
+      - supabase-storage-data:/var/lib/storage
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      supabase-rest:
+        condition: service_started
+    networks:
+      - supabase-network
+
+  # ---------------------------------------------------------------------------
+  # Image Proxy
+  # ---------------------------------------------------------------------------
+  supabase-imgproxy:
+    image: darthsim/imgproxy:v3.8.0
+    container_name: supabase-imgproxy
+    restart: unless-stopped
+    environment:
+      IMGPROXY_BIND: ":5001"
+      IMGPROXY_LOCAL_FILESYSTEM_ROOT: /
+      IMGPROXY_USE_ETAG: "true"
+      IMGPROXY_ENABLE_WEBP_DETECTION: ${IMGPROXY_ENABLE_WEBP_DETECTION:-true}
+    volumes:
+      - supabase-storage-data:/var/lib/storage:ro
+    healthcheck:
+      test: ["CMD", "imgproxy", "health"]
+      interval: 10s
+      timeout: 5s
+      retries: 5
+    networks:
+      - supabase-network
+
+  # ---------------------------------------------------------------------------
+  # Edge Functions (Deno)
+  # ---------------------------------------------------------------------------
+  supabase-edge-functions:
+    image: supabase/edge-runtime:v1.58.3
+    container_name: supabase-edge-functions
+    restart: unless-stopped
+    environment:
+      JWT_SECRET: ${JWT_SECRET}
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_ROLE_KEY: ${SERVICE_ROLE_KEY}
+      SUPABASE_DB_URL: postgres://postgres:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-postgres}
+      VERIFY_JWT: "${FUNCTIONS_VERIFY_JWT:-false}"
+    volumes:
+      - ./supabase/functions:/home/deno/functions:ro
+    command:
+      - start
+      - --main-service
+      - /home/deno/functions/main
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-network
+
+  # ---------------------------------------------------------------------------
+  # Studio (Admin Dashboard) - Optional, comment out for production
+  # ---------------------------------------------------------------------------
+  supabase-studio:
+    image: supabase/studio:20240923-59f7716
+    container_name: supabase-studio
+    restart: unless-stopped
+    ports:
+      - "${STUDIO_PORT:-3001}:3000/tcp"
+    environment:
+      STUDIO_PG_META_URL: http://supabase-meta:8080
+      POSTGRES_PASSWORD: ${POSTGRES_PASSWORD}
+      DEFAULT_ORGANIZATION_NAME: ${STUDIO_DEFAULT_ORGANIZATION:-Car Visit Planner}
+      DEFAULT_PROJECT_NAME: ${STUDIO_DEFAULT_PROJECT:-car-visit-planner}
+      SUPABASE_URL: http://supabase-kong:8000
+      SUPABASE_PUBLIC_URL: ${API_EXTERNAL_URL:-http://localhost:8000}
+      SUPABASE_ANON_KEY: ${ANON_KEY}
+      SUPABASE_SERVICE_KEY: ${SERVICE_ROLE_KEY}
+      AUTH_JWT_SECRET: ${JWT_SECRET}
+      LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-stub}
+      LOGFLARE_URL: http://supabase-analytics:4000
+      NEXT_PUBLIC_ENABLE_LOGS: "true"
+      NEXT_ANALYTICS_BACKEND_PROVIDER: postgres
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+      supabase-meta:
+        condition: service_started
+    networks:
+      - supabase-network
+
+  # ---------------------------------------------------------------------------
+  # Meta Service (Database metadata for Studio)
+  # ---------------------------------------------------------------------------
+  supabase-meta:
+    image: supabase/postgres-meta:v0.84.2
+    container_name: supabase-meta
+    restart: unless-stopped
+    environment:
+      PG_META_PORT: 8080
+      PG_META_DB_HOST: supabase-db
+      PG_META_DB_PORT: ${POSTGRES_PORT:-5432}
+      PG_META_DB_NAME: ${POSTGRES_DB:-postgres}
+      PG_META_DB_USER: supabase_admin
+      PG_META_DB_PASSWORD: ${POSTGRES_PASSWORD}
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-network
+
+  # ---------------------------------------------------------------------------
+  # Analytics (Log aggregation)
+  # ---------------------------------------------------------------------------
+  supabase-analytics:
+    image: supabase/logflare:1.4.0
+    container_name: supabase-analytics
+    restart: unless-stopped
+    environment:
+      LOGFLARE_NODE_HOST: 127.0.0.1
+      DB_USERNAME: supabase_admin
+      DB_DATABASE: ${POSTGRES_DB:-postgres}
+      DB_HOSTNAME: supabase-db
+      DB_PORT: ${POSTGRES_PORT:-5432}
+      DB_PASSWORD: ${POSTGRES_PASSWORD}
+      DB_SCHEMA: _analytics
+      LOGFLARE_API_KEY: ${LOGFLARE_API_KEY:-stub}
+      LOGFLARE_SINGLE_TENANT: "true"
+      LOGFLARE_SUPABASE_MODE: "true"
+      LOGFLARE_MIN_CLUSTER_SIZE: 1
+      POSTGRES_BACKEND_URL: postgres://supabase_admin:${POSTGRES_PASSWORD}@supabase-db:${POSTGRES_PORT:-5432}/${POSTGRES_DB:-postgres}
+      POSTGRES_BACKEND_SCHEMA: _analytics
+      LOGFLARE_FEATURE_FLAG_OVERRIDE: multibackend=true
+    depends_on:
+      supabase-db:
+        condition: service_healthy
+    networks:
+      - supabase-network
+
+# =============================================================================
+# NETWORKS
+# =============================================================================
+networks:
+  car-planner-network:
+    name: car-planner-network
+    driver: bridge
+  supabase-network:
+    name: supabase-network
+    driver: bridge
+
+# =============================================================================
+# VOLUMES
+# =============================================================================
+volumes:
+  supabase-db-data:
+    name: supabase-db-data
+  supabase-storage-data:
+    name: supabase-storage-data
