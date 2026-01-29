@@ -271,7 +271,7 @@ services:
   # Studio (Admin Dashboard) - Optional, comment out for production
   # ---------------------------------------------------------------------------
   supabase-studio:
-    image: supabase/studio:20250113-041d468
+    image: supabase/studio:latest
     container_name: supabase-studio
     restart: unless-stopped
     ports:
