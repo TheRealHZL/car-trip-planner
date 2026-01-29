@@ -2,7 +2,6 @@ import { ReactNode } from 'react';
 import { SidebarProvider, SidebarTrigger } from '@/components/ui/sidebar';
 import { AppSidebar } from './AppSidebar';
 import { Car, Menu } from 'lucide-react';
-import { Button } from '@/components/ui/button';
 
 interface MainLayoutProps {
   children: ReactNode;
@@ -22,10 +21,8 @@ export function MainLayout({ children }: MainLayoutProps) {
               </div>
               <span className="font-semibold text-foreground">Car Visit Planner</span>
             </div>
-            <SidebarTrigger asChild>
-              <Button variant="ghost" size="icon">
-                <Menu className="h-5 w-5" />
-              </Button>
+            <SidebarTrigger>
+              <Menu className="h-5 w-5" />
             </SidebarTrigger>
           </header>
           
